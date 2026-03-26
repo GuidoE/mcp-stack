@@ -1,0 +1,19 @@
+# ============================================================
+# traefik/traefik.yml  —  Traefik static config
+# ============================================================
+
+api:
+  dashboard: true
+  insecure: true   # dashboard on :8080 — disable when stable
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: mcp-net
+
+log:
+  level: INFO

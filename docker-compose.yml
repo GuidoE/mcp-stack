@@ -1,0 +1,59 @@
+# ============================================================
+# mcp-stack docker-compose.yml
+# Infrastructure-as-code for all MCP servers
+# Host: LXC 106 (mcp-stack) on Proxmox
+# ============================================================
+
+networks:
+  mcp-net:
+    driver: bridge
+
+services:
+
+  # ----------------------------------------------------------
+  # m365-mcp  —  PnP CLI for Microsoft 365
+  # Manages SharePoint, Teams, Entra ID, and more
+  # ----------------------------------------------------------
+  m365-mcp:
+    build:
+      context: ./services/m365-mcp
+      dockerfile: Dockerfile
+    container_name: m365-mcp
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "3001:3000"
+    volumes:
+      # Persist M365 auth token across restarts
+      - m365-auth:/root/.local/share/m365
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ----------------------------------------------------------
+  # traefik  —  Reverse proxy / router
+  # Routes /m365 → m365-mcp:3000, etc.
+  # Add new MCP services here as you expand the stack
+  # ----------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "80:80"
+      - "8080:8080"   # Traefik dashboard (disable in prod)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+    labels:
+      - "traefik.enable=true"
+
+volumes:
+  m365-auth:
