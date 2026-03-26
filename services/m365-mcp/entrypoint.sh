@@ -1,21 +1,17 @@
 #!/usr/bin/env sh
 # ============================================================
-# entrypoint.sh  —  m365-mcp container startup
+# entrypoint.sh  —  m365-mcp container
+# The PnP MCP server uses stdio transport — it's meant to be
+# launched as a subprocess, not run as a persistent service.
+# This container stays alive for auth management only.
+# Claude Desktop connects via: npx @pnp/cli-microsoft365-mcp-server
+# or via SSH to the LXC where m365 CLI is installed globally.
 # ============================================================
-set -e
 
-echo "==> Starting PnP CLI for Microsoft 365 MCP server..."
+echo "==> m365-mcp auth container running"
 echo "    M365 auth dir: ~/.local/share/m365"
+echo "    Run: m365 login   (if not authenticated)"
+echo "    MCP server is launched by Claude Desktop as a stdio subprocess"
 
-# Find the correct entry point for the MCP server
-MCP_BIN=$(find /usr/local/lib/node_modules/@pnp/cli-microsoft365-mcp-server -name "*.js" | grep -i "index\|server\|main\|start" | head -1)
-
-if [ -z "$MCP_BIN" ]; then
-  echo "ERROR: Could not find MCP server entry point. Listing package contents:"
-  ls -la /usr/local/lib/node_modules/@pnp/cli-microsoft365-mcp-server/
-  # Keep container alive for inspection
-  sleep infinity
-fi
-
-echo "==> Found MCP server at: $MCP_BIN"
-exec node "$MCP_BIN"
+# Keep container alive for auth management
+exec sleep infinity
