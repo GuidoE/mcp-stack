@@ -1,5 +1,6 @@
 # secrets
 .env
+services/spotify-mcp/config/spotify-config.json
 
 # Docker artifacts
 **/node_modules/

@@ -50,6 +50,23 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
+  # spotify-mcp  —  Spotify playback, playlists, search
+  # Transport: stdio via SSH
+  # ----------------------------------------------------------
+  spotify-mcp:
+    build:
+      context: ./services/spotify-mcp
+      dockerfile: Dockerfile
+    container_name: spotify-mcp
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    volumes:
+      - ./services/spotify-mcp/config/spotify-config.json:/app/spotify-config.json
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
   # traefik  —  Reverse proxy / router
   # ----------------------------------------------------------
   traefik:
