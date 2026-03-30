@@ -1,0 +1,68 @@
+# ============================================================
+# traefik/dynamic/infra-services.yml
+# Routes for superg.co infrastructure services
+# ============================================================
+
+http:
+  routers:
+
+    # ── Telos Platform (frontend + API) ──────────────────────
+    telos:
+      rule: "Host(`telos.superg.co`)"
+      entryPoints: [websecure]
+      service: telos
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "superg.co"
+            sans: ["*.superg.co"]
+
+    # ── Grafana ──────────────────────────────────────────────
+    grafana:
+      rule: "Host(`grafana.superg.co`)"
+      entryPoints: [websecure]
+      service: grafana
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "superg.co"
+            sans: ["*.superg.co"]
+
+    # ── Prometheus ───────────────────────────────────────────
+    prometheus:
+      rule: "Host(`prometheus.superg.co`)"
+      entryPoints: [websecure]
+      service: prometheus
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "superg.co"
+            sans: ["*.superg.co"]
+
+    # ── Traefik Dashboard ────────────────────────────────────
+    traefik-dash:
+      rule: "Host(`traefik.superg.co`)"
+      entryPoints: [websecure]
+      service: api@internal
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "superg.co"
+            sans: ["*.superg.co"]
+
+  services:
+
+    telos:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.11.4:80"
+
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.11.4:3000"
+
+    prometheus:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.11.4:9090"

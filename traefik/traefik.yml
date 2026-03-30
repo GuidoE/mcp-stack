@@ -1,19 +1,38 @@
 # ============================================================
 # traefik/traefik.yml  —  Traefik static config
+# Reverse proxy for superg.co infra services
 # ============================================================
 
 api:
   dashboard: true
-  insecure: true   # dashboard on :8080 — disable when stable
+  insecure: true   # dashboard on :8080 — internal only
 
 entryPoints:
   web:
     address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
 
 providers:
-  docker:
-    exposedByDefault: false
-    network: mcp-net
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  cloudflare:
+    acme:
+      email: guido@superg.co
+      storage: /etc/traefik/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
 
 log:
   level: INFO
