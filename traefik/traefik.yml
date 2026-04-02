@@ -1,11 +1,10 @@
 # ============================================================
 # traefik/traefik.yml  —  Traefik static config
-# Reverse proxy for superg.co infra services
 # ============================================================
 
 api:
   dashboard: true
-  insecure: true   # dashboard on :8080 — internal only
+  insecure: true
 
 entryPoints:
   web:

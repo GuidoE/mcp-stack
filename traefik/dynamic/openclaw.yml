@@ -1,0 +1,19 @@
+http:
+  routers:
+    openclaw:
+      rule: "PathPrefix(`/v1`)"
+      entryPoints:
+        - websecure
+      service: openclaw
+      tls: {}
+
+  services:
+    openclaw:
+      loadBalancer:
+        serversTransport: tailscale
+        servers:
+          - url: "https://claw.bowfin-bellatrix.ts.net:18443"
+
+  serversTransports:
+    tailscale:
+      insecureSkipVerify: true
