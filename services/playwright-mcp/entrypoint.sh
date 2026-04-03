@@ -13,5 +13,5 @@ if [ "${MCP_TRANSPORT}" = "stdio" ]; then
   exec sleep infinity
 else
   # SSE mode — HTTP server for remote agents
-  exec npx @playwright/mcp@latest --headless --host 0.0.0.0 --port "${MCP_PORT:-3002}" --allowed-hosts '*'
+  exec npx @playwright/mcp@latest --headless --host 0.0.0.0 --port "${MCP_PORT:-3002}" --allowed-hosts '*' --caps vision
 fi
