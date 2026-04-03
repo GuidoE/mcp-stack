@@ -67,6 +67,26 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
+  # playwright-mcp  —  Headless Chromium for agentic web browsing
+  # Transport: SSE on port 3002
+  # ----------------------------------------------------------
+  playwright-mcp:
+    build:
+      context: ./services/playwright-mcp
+      dockerfile: Dockerfile
+    container_name: playwright-mcp
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "3002:3002"
+    environment:
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=3002
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
   # traefik  —  Reverse proxy / TLS termination for *.superg.co
   # Certs via Let's Encrypt + Cloudflare DNS challenge
   # ----------------------------------------------------------

@@ -33,6 +33,7 @@ USW Enterprise 24 PoE — VLAN 11 (192.168.11.0/24)
 └── LXC 106 — mcp-stack (privileged Ubuntu 24.04, 192.168.11.6)
     └── Docker Compose
         ├── m365-mcp      (PnP CLI for Microsoft 365, port 3001)
+        ├── playwright-mcp (headless Chromium browser, SSE on port 3002)
         ├── traefik       (reverse proxy, port 80 / dashboard 8080)
         └── [future MCPs] (add as new services)
 ```
@@ -70,7 +71,7 @@ In UniFi Network console (or SSH):
 Allow your Macs to reach the MCP services:
 - Source: `192.168.2.0/24`
 - Destination: `192.168.11.0/24`
-- Ports: `3001` (m365-mcp), `80` (Traefik), `8080` (Traefik dashboard)
+- Ports: `3001` (m365-mcp), `3002` (playwright-mcp), `80` (Traefik), `8080` (Traefik dashboard)
 - Action: Allow
 
 ---
@@ -159,8 +160,9 @@ cd /opt/mcp-stack && bash scripts/update.sh
 
 ## Services
 
-| Service  | Port | Description                       |
-|----------|------|-----------------------------------|
-| m365-mcp | 3001 | PnP CLI for Microsoft 365         |
-| traefik  | 80   | Reverse proxy                     |
-| traefik  | 8080 | Dashboard (disable in production) |
+| Service        | Port | Description                              |
+|----------------|------|------------------------------------------|
+| m365-mcp       | 3001 | PnP CLI for Microsoft 365                |
+| playwright-mcp | 3002 | Headless Chromium for agentic browsing    |
+| traefik        | 80   | Reverse proxy                            |
+| traefik        | 8080 | Dashboard (disable in production)        |
