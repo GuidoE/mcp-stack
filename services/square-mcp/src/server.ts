@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import express from "express";
 import { z } from "zod";
 import { loadFavorites, saveFavorites, addFavorite, removeFavorite } from "./tools/favorites.js";
 import { registerLoginTool } from "./tools/login.js";
@@ -9,6 +11,8 @@ import { registerBookingsTool, registerCancelTool } from "./tools/bookings.js";
 import { closeBrowser } from "./browser/session.js";
 
 const FAVORITES_PATH = process.env.FAVORITES_PATH ?? "/app/favorites.json";
+const MCP_TRANSPORT = process.env.MCP_TRANSPORT ?? "sse";
+const MCP_PORT = parseInt(process.env.MCP_PORT ?? "3003", 10);
 
 const server = new McpServer({
   name: "square-mcp",
@@ -56,9 +60,7 @@ registerBookTool(server, FAVORITES_PATH);
 registerBookingsTool(server);
 registerCancelTool(server);
 
-// ---- Stdio transport ----
-const transport = new StdioServerTransport();
-
+// ---- Transport ----
 process.on("SIGINT", async () => {
   await closeBrowser();
   await server.close();
@@ -71,4 +73,28 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-await server.connect(transport);
+if (MCP_TRANSPORT === "stdio") {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+} else {
+  // SSE mode — HTTP server for remote agents (like Bo on OpenClaw)
+  const app = express();
+  let sseTransport: SSEServerTransport | null = null;
+
+  app.get("/sse", async (_req, res) => {
+    sseTransport = new SSEServerTransport("/messages", res);
+    await server.connect(sseTransport);
+  });
+
+  app.post("/messages", async (req, res) => {
+    if (!sseTransport) {
+      res.status(400).json({ error: "No SSE connection established" });
+      return;
+    }
+    await sseTransport.handlePostMessage(req, res);
+  });
+
+  app.listen(MCP_PORT, "0.0.0.0", () => {
+    console.error(`==> square-mcp SSE server listening on 0.0.0.0:${MCP_PORT}`);
+  });
+}

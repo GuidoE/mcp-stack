@@ -108,7 +108,7 @@ services:
 
   # ----------------------------------------------------------
   # square-mcp  —  Square appointment booking via Playwright
-  # Transport: stdio via SSH
+  # Transport: SSE on port 3003 (default), or stdio via docker exec
   # ----------------------------------------------------------
   square-mcp:
     build:
@@ -118,6 +118,11 @@ services:
     restart: unless-stopped
     networks:
       - mcp-net
+    ports:
+      - "3003:3003"
+    environment:
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=3003
     volumes:
       - square-session:/app/.browser-data
       - ./services/square-mcp/config/favorites.json:/app/favorites.json
