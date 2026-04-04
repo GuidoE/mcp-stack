@@ -1,0 +1,7 @@
+{
+  "barber": {
+    "url": "https://squareup.com/appointments/book/MERCHANT_ID/LOCATION_ID/services",
+    "default_service": "Haircut",
+    "notes": "Ask for Mike"
+  }
+}

@@ -87,6 +87,44 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
+  # flaresolverr  —  Cloudflare anti-bot bypass proxy
+  # HTTP API on port 8191, usable by agents on mcp-net
+  # ----------------------------------------------------------
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "8191:8191"
+    environment:
+      - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
+      - LOG_HTML=${FLARESOLVERR_LOG_HTML:-false}
+      - CAPTCHA_SOLVER=${FLARESOLVERR_CAPTCHA_SOLVER:-none}
+      - TZ=America/Chicago
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
+  # square-mcp  —  Square appointment booking via Playwright
+  # Transport: stdio via SSH
+  # ----------------------------------------------------------
+  square-mcp:
+    build:
+      context: ./services/square-mcp
+      dockerfile: Dockerfile
+    container_name: square-mcp
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    volumes:
+      - square-session:/app/.browser-data
+      - ./services/square-mcp/config/favorites.json:/app/favorites.json
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
   # traefik  —  Reverse proxy / TLS termination for *.superg.co
   # Certs via Let's Encrypt + Cloudflare DNS challenge
   # ----------------------------------------------------------
@@ -115,3 +153,4 @@ services:
 volumes:
   m365-auth:
   traefik-acme:
+  square-session:
