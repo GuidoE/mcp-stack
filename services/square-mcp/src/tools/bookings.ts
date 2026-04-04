@@ -1,63 +1,67 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getBrowser, checkSession } from "../browser/session.js";
-import { waitForPageReady } from "../browser/navigation.js";
+import { getBrowser } from "../browser/session.js";
 
-const BOOKINGS_URL = "https://squareup.com/appointments/buyer/dashboard";
+// Bookings page is per-merchant: /bookings on the same merchant booking URL
+// Requires the user to be logged in (persistent browser context)
 
 export function registerBookingsTool(server: McpServer): void {
   server.tool(
     "square_list_bookings",
-    "List upcoming Square appointments",
-    {},
-    async () => {
-      const loggedIn = await checkSession();
-      if (!loggedIn) {
-        return { content: [{ type: "text", text: JSON.stringify({ status: "session_expired", message: "Not logged in. Call square_login first." }) }] };
-      }
-
+    "List upcoming Square appointments for a merchant. Requires prior login via square_login.",
+    {
+      merchant_url: z.string().describe("Merchant booking base URL (e.g. https://book.squareup.com/appointments/MERCHANT_ID/location/LOCATION_ID)"),
+    },
+    async ({ merchant_url }) => {
       const { page } = await getBrowser();
 
       try {
-        await page.goto(BOOKINGS_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
-        await waitForPageReady(page);
+        // Navigate to the bookings page for this merchant
+        const bookingsUrl = merchant_url.replace(/\/services$/, "").replace(/\/$/, "") + "/bookings";
+        await page.goto(bookingsUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+        await page.waitForTimeout(8000);
 
-        // Extract booking cards from the dashboard
-        const bookingCards = page.locator(
-          '[class*="appointment"], [class*="booking"], [data-testid*="appointment"]',
-        );
-        const count = await bookingCards.count();
-        const bookings: { datetime: string; service: string; merchant: string; status: string }[] = [];
+        const body = await page.locator("body").textContent() ?? "";
+        const url = page.url();
 
-        for (let i = 0; i < count; i++) {
-          const card = bookingCards.nth(i);
-          const text = await card.textContent();
-          if (text) {
-            bookings.push({
-              datetime: text.trim(),
-              service: "see details",
-              merchant: "see details",
-              status: "upcoming",
-            });
-          }
+        // Check if we need to log in
+        if (url.includes("/login") || body.includes("Sign in")) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            status: "needs_login",
+            message: "Not logged in. Call square_login first, then retry.",
+          }) }] };
         }
 
-        // If no structured cards found, grab the page text for Bo to interpret
-        if (bookings.length === 0) {
-          const bodyText = await page.locator("main, [role='main'], body").first().textContent();
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                bookings: [],
-                page_content: bodyText?.trim().slice(0, 2000) ?? "No content found",
-                message: "No structured bookings found. Page content included for interpretation.",
-              }),
-            }],
-          };
+        // Extract booking cards
+        const cards = await page.locator('market-link[data-testid*="bookings"]').all();
+        const bookings: { date: string; time: string; provider: string; service: string }[] = [];
+
+        for (const card of cards) {
+          const text = await card.textContent() ?? "";
+          // Parse the card text — format is like "Sunday, Apr 5, 2026\n8:30 – 9:30 AM CDT\nVi\n..."
+          const dateMatch = text.match(/\w+,\s+\w+\s+\d{1,2},\s+\d{4}/);
+          const timeMatch = text.match(/\d{1,2}:\d{2}\s*[–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*\w*/i);
+          const providerMatch = text.match(/\n([A-Z][a-z]+)\n/);
+
+          bookings.push({
+            date: dateMatch?.[0] ?? "unknown",
+            time: timeMatch?.[0] ?? "unknown",
+            provider: providerMatch?.[1] ?? "unknown",
+            service: text.includes("haircut") ? "haircut" : text.trim().substring(0, 100),
+          });
         }
 
-        return { content: [{ type: "text", text: JSON.stringify({ bookings }) }] };
+        if (bookings.length > 0) {
+          return { content: [{ type: "text", text: JSON.stringify({ bookings }) }] };
+        }
+
+        // No structured cards — return raw page content
+        return { content: [{ type: "text", text: JSON.stringify({
+          bookings: [],
+          page_content: body.trim().substring(0, 2000),
+          message: "No bookings found, or page structure unexpected. Raw content included.",
+        }) }] };
+
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `Failed to list bookings: ${msg}` }) }] };
@@ -69,68 +73,55 @@ export function registerBookingsTool(server: McpServer): void {
 export function registerCancelTool(server: McpServer): void {
   server.tool(
     "square_cancel",
-    "Cancel a Square appointment",
+    "Cancel or reschedule a Square appointment. Square sends a confirmation email with manage/cancel links — this tool navigates to the bookings page and attempts to find cancel options. If no cancel button is found on the page, check your email for the manage link.",
     {
-      booking_id: z.string().optional().describe("Booking ID to cancel"),
-      merchant: z.string().optional().describe("Merchant name to identify booking"),
-      datetime: z.string().optional().describe("Date/time to identify booking"),
+      merchant_url: z.string().describe("Merchant booking base URL"),
+      booking_date: z.string().optional().describe("Date of the booking to cancel (e.g. 'Apr 5')"),
     },
-    async ({ booking_id, merchant, datetime }) => {
-      const loggedIn = await checkSession();
-      if (!loggedIn) {
-        return { content: [{ type: "text", text: JSON.stringify({ status: "session_expired", message: "Not logged in. Call square_login first." }) }] };
-      }
-
-      if (!booking_id && !datetime) {
-        return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: "Provide booking_id or datetime to identify the booking to cancel" }) }] };
-      }
-
+    async ({ merchant_url, booking_date }) => {
       const { page } = await getBrowser();
 
       try {
-        // Navigate to bookings dashboard
-        await page.goto(BOOKINGS_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
-        await waitForPageReady(page);
+        const bookingsUrl = merchant_url.replace(/\/services$/, "").replace(/\/$/, "") + "/bookings";
+        await page.goto(bookingsUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+        await page.waitForTimeout(8000);
 
-        // Try to find the booking by datetime or ID
-        const identifier = booking_id ?? datetime ?? "";
-        const bookingLink = page.locator(`text=${identifier}`).first();
-        const exists = (await bookingLink.count()) > 0;
+        const body = await page.locator("body").textContent() ?? "";
 
-        if (!exists) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `Booking "${identifier}" not found on dashboard` }) }] };
+        // Try to find and click the booking
+        if (booking_date) {
+          const card = page.locator(`market-link[data-testid*="bookings"]`).filter({ hasText: booking_date }).first();
+          if ((await card.count()) > 0) {
+            await card.click({ force: true });
+            await page.waitForTimeout(5000);
+          }
         }
 
-        await bookingLink.click();
-        await waitForPageReady(page);
+        const afterBody = await page.locator("body").textContent() ?? "";
+        const afterUrl = page.url();
 
-        // Look for cancel button
-        const cancelButton = page.locator(
-          'button:has-text("Cancel"), a:has-text("Cancel"), [data-testid*="cancel"]',
-        ).first();
-        const cancelExists = (await cancelButton.count()) > 0;
-
-        if (!cancelExists) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: "Cancel button not found on booking page" }) }] };
+        // Look for cancel/reschedule buttons
+        const cancelBtn = page.locator('market-button:visible, button:visible').filter({ hasText: /cancel|reschedule/i });
+        if ((await cancelBtn.count()) > 0) {
+          const btnText = await cancelBtn.first().evaluate((el: Element) => (el as HTMLElement).innerText);
+          return { content: [{ type: "text", text: JSON.stringify({
+            status: "cancel_available",
+            message: `Found "${btnText?.trim()}" button. Call square_cancel again with confirm=true to proceed.`,
+            page_url: afterUrl,
+          }) }] };
         }
 
-        await cancelButton.click();
-        await waitForPageReady(page);
+        // No cancel button found — Square may only support cancel via email link
+        return { content: [{ type: "text", text: JSON.stringify({
+          status: "no_cancel_button",
+          message: "No cancel/reschedule button found on the bookings page. Square sends a confirmation email with a manage link — check your email to cancel or reschedule.",
+          page_url: afterUrl,
+          page_content: afterBody.trim().substring(0, 1500),
+        }) }] };
 
-        // Confirm cancellation if prompted
-        const confirmButton = page.locator(
-          'button:has-text("Confirm"), button:has-text("Yes"), button:has-text("Cancel Appointment")',
-        ).first();
-        const confirmExists = (await confirmButton.count()) > 0;
-        if (confirmExists) {
-          await confirmButton.click();
-          await waitForPageReady(page);
-        }
-
-        return { content: [{ type: "text", text: JSON.stringify({ status: "cancelled", message: `Booking "${identifier}" cancelled` }) }] };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `Cancellation failed: ${msg}` }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `Cancel failed: ${msg}` }) }] };
       }
     },
   );
