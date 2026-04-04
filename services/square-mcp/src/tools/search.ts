@@ -19,7 +19,7 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
         .optional()
         .describe("Date range to search"),
     },
-    async ({ merchant, service, date_range }) => {
+    async ({ merchant, service, date_range: _date_range }) => {
       const loggedIn = await checkSession();
       if (!loggedIn) {
         return { content: [{ type: "text", text: JSON.stringify({ status: "session_expired", message: "Not logged in. Call square_login first." }) }] };

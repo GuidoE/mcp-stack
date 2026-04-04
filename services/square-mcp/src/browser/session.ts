@@ -2,7 +2,6 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 
 const BROWSER_DATA_DIR = process.env.BROWSER_DATA_DIR ?? "/app/.browser-data";
 const SQUARE_ACCOUNT_URL = "https://squareup.com/appointments/buyer/dashboard";
-const SQUARE_LOGIN_URL = "https://squareup.com/login";
 
 let context: BrowserContext | null = null;
 let page: Page | null = null;

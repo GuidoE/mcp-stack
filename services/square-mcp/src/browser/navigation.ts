@@ -24,16 +24,3 @@ export async function getPageError(page: Page): Promise<string | null> {
   return null;
 }
 
-export async function extractTextContent(
-  page: Page,
-  selector: string,
-): Promise<string[]> {
-  const elements = page.locator(selector);
-  const count = await elements.count();
-  const results: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const text = await elements.nth(i).textContent();
-    if (text) results.push(text.trim());
-  }
-  return results;
-}

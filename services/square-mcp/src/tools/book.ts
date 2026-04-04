@@ -79,7 +79,7 @@ export function registerBookTool(server: McpServer, favoritesPath: string): void
               type: "text",
               text: JSON.stringify({
                 status: "booked",
-                confirmation: { datetime, service, merchant, message: successText.trim() },
+                confirmation: { id: null, datetime, service, merchant, message: successText.trim() },
               }),
             }],
           };
