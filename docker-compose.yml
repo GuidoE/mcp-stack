@@ -130,6 +130,27 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
+  # postgres  —  Shared PostgreSQL for MCP services, OpenClaw, Hermes
+  # Port: 5433 (host) → 5432 (container)
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: mcp-postgres
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-mcp}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-mcp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
   # traefik  —  Reverse proxy / TLS termination for *.superg.co
   # Certs via Let's Encrypt + Cloudflare DNS challenge
   # ----------------------------------------------------------
@@ -159,3 +180,4 @@ volumes:
   m365-auth:
   traefik-acme:
   square-session:
+  pgdata:

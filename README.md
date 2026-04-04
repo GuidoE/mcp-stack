@@ -34,6 +34,9 @@ USW Enterprise 24 PoE — VLAN 11 (192.168.11.0/24)
     └── Docker Compose
         ├── m365-mcp      (PnP CLI for Microsoft 365, port 3001)
         ├── playwright-mcp (headless Chromium browser, SSE on port 3002)
+        ├── flaresolverr  (Cloudflare anti-bot bypass, port 8191)
+        ├── square-mcp    (Square appointment booking, SSE on port 3003)
+        ├── postgres      (shared PostgreSQL 17, port 5433)
         ├── traefik       (reverse proxy, port 80 / dashboard 8080)
         └── [future MCPs] (add as new services)
 ```
@@ -71,7 +74,7 @@ In UniFi Network console (or SSH):
 Allow your Macs to reach the MCP services:
 - Source: `192.168.2.0/24`
 - Destination: `192.168.11.0/24`
-- Ports: `3001` (m365-mcp), `3002` (playwright-mcp), `80` (Traefik), `8080` (Traefik dashboard)
+- Ports: `3001` (m365-mcp), `3002` (playwright-mcp), `5433` (postgres), `80` (Traefik), `8080` (Traefik dashboard)
 - Action: Allow
 
 ---
@@ -164,5 +167,8 @@ cd /opt/mcp-stack && bash scripts/update.sh
 |----------------|------|------------------------------------------|
 | m365-mcp       | 3001 | PnP CLI for Microsoft 365                |
 | playwright-mcp | 3002 | Headless Chromium for agentic browsing    |
+| square-mcp     | 3003 | Square appointment booking               |
+| postgres       | 5433 | Shared PostgreSQL 17                     |
+| flaresolverr   | 8191 | Cloudflare anti-bot bypass proxy         |
 | traefik        | 80   | Reverse proxy                            |
 | traefik        | 8080 | Dashboard (disable in production)        |
