@@ -16,34 +16,42 @@ export function registerBookTool(server: McpServer, _favoritesPath: string): voi
         const currentUrl = page.url();
         const currentBody = await page.locator("body").textContent() ?? "";
 
-        // Verify we're on the availability/calendar page
-        if (!currentUrl.includes("/availability") && !currentBody.match(/\d{1,2}:\d{2}\s*(am|pm)/i)) {
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "failed",
-            error: "Not on the calendar page. Run square_search_times first to navigate to available slots.",
-            current_url: currentUrl,
-          }) }] };
+        // If we're on the checkout page, handle it directly
+        if (currentUrl.includes("/checkout") || currentBody.includes("Cancellation policy")) {
+          // Check the cancellation policy checkbox
+          const policyCheckbox = page.locator('input[type="checkbox"], market-checkbox, [role="checkbox"]').first();
+          if ((await policyCheckbox.count()) > 0) {
+            const isChecked = await policyCheckbox.isChecked().catch(() => false);
+            if (!isChecked) {
+              await policyCheckbox.click({ force: true });
+              await page.waitForTimeout(1000);
+            }
+          }
+          // Also try clicking the label text if checkbox didn't work
+          const policyLabel = page.getByText("I have read and agreed", { exact: false });
+          if ((await policyLabel.count()) > 0) {
+            await policyLabel.click();
+            await page.waitForTimeout(1000);
+          }
+        } else if (currentUrl.includes("/availability") || currentBody.match(/\d{1,2}:\d{2}\s*(am|pm)/i)) {
+          // On calendar page — click the time slot
+          const timeSlot = page.getByText(time, { exact: false }).first();
+          if ((await timeSlot.count()) === 0) {
+            return { content: [{ type: "text", text: JSON.stringify({
+              status: "failed",
+              error: `Time "${time}" not found on page.`,
+            }) }] };
+          }
+          await timeSlot.click();
+          await page.waitForTimeout(3000);
         }
 
-        // Click the time slot
-        const timeSlot = page.getByText(time, { exact: false }).first();
-        if ((await timeSlot.count()) === 0) {
-          return { content: [{ type: "text", text: JSON.stringify({
-            status: "failed",
-            error: `Time "${time}" not found on page. Available times on page: check square_search_times output.`,
-          }) }] };
-        }
-
-        await timeSlot.click();
-        await page.waitForTimeout(3000);
-
-        // After clicking a time, Square shows a confirmation/review page
-        // Look for "Book" or "Confirm" button
+        // Look for Book/Confirm button
         const body = await page.locator("body").textContent() ?? "";
         const url = page.url();
 
-        // Try clicking confirm/book
-        const confirmBtn = page.locator('market-button:visible').filter({ hasText: /book|confirm|schedule|complete/i });
+        // Try market-button first (Square's web component)
+        const confirmBtn = page.locator('market-button:visible').filter({ hasText: /book appointment|book|confirm|schedule|complete/i });
         if ((await confirmBtn.count()) > 0) {
           await confirmBtn.first().click();
           await page.waitForTimeout(5000);
