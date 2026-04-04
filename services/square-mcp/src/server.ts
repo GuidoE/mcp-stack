@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import { loadFavorites, saveFavorites, addFavorite, removeFavorite } from "./tools/favorites.js";
 import { registerLoginTool } from "./tools/login.js";
 import { registerSearchTool } from "./tools/search.js";
@@ -80,40 +81,56 @@ if (MCP_TRANSPORT === "stdio") {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 } else {
-  // SSE mode — each SSE connection gets its own McpServer instance,
-  // but they all share the same browser (module-level singleton in session.ts)
-  // and the same persistent context (Docker volume at /app/.browser-data).
+  // Streamable HTTP mode — matches how playwright-mcp exposes /mcp
+  // Each session gets its own McpServer + transport, but they share
+  // the browser singleton (module-level in session.ts).
   const app = express();
-  const transports = new Map<string, SSEServerTransport>();
+  const sessions = new Map<string, { server: McpServer; transport: StreamableHTTPServerTransport }>();
 
-  app.get("/sse", async (_req, res) => {
-    const server = createServer();
-    const transport = new SSEServerTransport("/messages", res);
-    transports.set(transport.sessionId, transport);
-    console.error(`[sse] new connection: ${transport.sessionId}`);
-
-    res.on("close", () => {
-      console.error(`[sse] connection closed: ${transport.sessionId}`);
-      transports.delete(transport.sessionId);
-      server.close().catch(() => {});
-    });
-
-    await server.connect(transport);
-  });
-
-  app.post("/messages", async (req, res) => {
-    const sessionId = req.query.sessionId as string;
-    const transport = transports.get(sessionId);
-    if (!transport) {
-      res.status(400).json({ error: "Unknown session. Connect to /sse first." });
+  app.all("/mcp", async (req, res) => {
+    // Check for existing session
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (sessionId && sessions.has(sessionId)) {
+      const session = sessions.get(sessionId)!;
+      await session.transport.handleRequest(req, res, req.body);
       return;
     }
-    await transport.handlePostMessage(req, res);
+
+    // New session — only on POST (initialization)
+    if (req.method === "POST") {
+      const server = createServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+      });
+
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+
+      // Store session after handling (sessionId is set after first request)
+      if (transport.sessionId) {
+        sessions.set(transport.sessionId, { server, transport });
+        console.error(`[mcp] new session: ${transport.sessionId}`);
+      }
+      return;
+    }
+
+    // GET for SSE stream on existing session (handled above), or new GET without session
+    if (req.method === "GET") {
+      res.status(405).json({ error: "Method not allowed. POST to /mcp to initialize." });
+      return;
+    }
+
+    res.status(400).json({ error: "Bad request" });
+  });
+
+  // Also keep legacy /sse for backwards compatibility
+  app.get("/sse", (_req, res) => {
+    res.status(410).json({ error: "Legacy SSE endpoint deprecated. Use /mcp instead." });
   });
 
   app.listen(MCP_PORT, "0.0.0.0", () => {
-    console.error(`==> square-mcp SSE server listening on 0.0.0.0:${MCP_PORT}`);
-    // Eagerly launch browser so it's warm for the first tool call
+    console.error(`==> square-mcp Streamable HTTP server listening on 0.0.0.0:${MCP_PORT}`);
+    console.error(`    Endpoint: http://0.0.0.0:${MCP_PORT}/mcp`);
     getBrowser().catch((err) => console.error("[browser] eager launch failed:", err));
   });
 }
