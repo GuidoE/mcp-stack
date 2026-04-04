@@ -8,7 +8,7 @@ import { registerLoginTool } from "./tools/login.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerBookTool } from "./tools/book.js";
 import { registerBookingsTool, registerCancelTool } from "./tools/bookings.js";
-import { closeBrowser } from "./browser/session.js";
+import { closeBrowser, getBrowser } from "./browser/session.js";
 
 const FAVORITES_PATH = process.env.FAVORITES_PATH ?? "/app/favorites.json";
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT ?? "sse";
@@ -113,5 +113,7 @@ if (MCP_TRANSPORT === "stdio") {
 
   app.listen(MCP_PORT, "0.0.0.0", () => {
     console.error(`==> square-mcp SSE server listening on 0.0.0.0:${MCP_PORT}`);
+    // Eagerly launch browser so it's warm for the first tool call
+    getBrowser().catch((err) => console.error("[browser] eager launch failed:", err));
   });
 }
