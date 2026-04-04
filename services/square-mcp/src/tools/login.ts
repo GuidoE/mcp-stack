@@ -1,14 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getBrowser, checkSession } from "../browser/session.js";
-import { waitForPageReady } from "../browser/navigation.js";
 
-const SQUARE_LOGIN_URL = "https://squareup.com/login";
+// Buyer login — uses OTP (not the merchant dashboard login which asks for password)
+const SQUARE_BUYER_LOGIN_URL = "https://app.squareup.com/login?app=appointments";
 
 export function registerLoginTool(server: McpServer): void {
   server.tool(
     "square_login",
-    "Log in to Square. First call with phone/email triggers OTP. Second call with otp_code completes login.",
+    "Log in to Square as a buyer. First call with phone triggers an OTP code via SMS. Second call with otp_code completes login.",
     {
       phone: z.string().optional().describe("Phone number for Square login"),
       email: z.string().optional().describe("Email for Square login"),
@@ -17,26 +17,39 @@ export function registerLoginTool(server: McpServer): void {
     async ({ phone, email, otp_code }) => {
       const { page } = await getBrowser();
 
-      // If providing OTP, we're completing a login already in progress
+      // If providing OTP, complete the login
       if (otp_code) {
         try {
-          // Find the OTP input field and enter the code
-          const otpInput = page.locator('input[type="text"], input[type="tel"], input[name*="code"], input[name*="otp"]').first();
+          // Find OTP input — could be tel, text, or any visible input on the code page
+          const otpInput = page.locator('input[type="tel"]:visible, input[type="text"]:visible, input[type="number"]:visible').first();
           await otpInput.waitFor({ timeout: 5000 });
           await otpInput.fill(otp_code);
+          await page.waitForTimeout(1000);
 
-          // Look for a submit/verify button
-          const submitButton = page.locator('button[type="submit"], button:has-text("Verify"), button:has-text("Continue"), button:has-text("Submit")').first();
-          await submitButton.click();
+          // Click verify/submit — market-button or regular button
+          const verifyBtn = page.locator('market-button:visible').filter({ hasText: /verify|confirm|sign in|continue|submit/i });
+          if ((await verifyBtn.count()) > 0) {
+            await verifyBtn.first().click();
+          } else {
+            // Fallback: press Enter
+            await page.keyboard.press("Enter");
+          }
 
-          await page.waitForURL((url) => !url.toString().includes("/login"), { timeout: 15000 });
-          await waitForPageReady(page);
+          await page.waitForTimeout(8000);
 
           const loggedIn = await checkSession();
           if (loggedIn) {
             return { content: [{ type: "text", text: JSON.stringify({ status: "logged_in", message: "Successfully logged in to Square" }) }] };
           }
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: "OTP accepted but session check failed. Try again." }) }] };
+
+          // Check if we landed back on the booking page (also counts as success)
+          const url = page.url();
+          if (url.includes("book.squareup.com") || url.includes("/appointments")) {
+            return { content: [{ type: "text", text: JSON.stringify({ status: "logged_in", message: "Logged in — redirected to booking page" }) }] };
+          }
+
+          const body = await page.locator("body").textContent() ?? "";
+          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: "OTP submitted but login unclear", page_url: url, page_content: body.trim().substring(0, 500) }) }] };
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `OTP entry failed: ${msg}` }) }] };
@@ -49,33 +62,43 @@ export function registerLoginTool(server: McpServer): void {
         return { content: [{ type: "text", text: JSON.stringify({ status: "logged_in", message: "Already logged in to Square" }) }] };
       }
 
-      // Start login flow
+      // Start buyer login flow
       const credential = phone ?? email;
       if (!credential) {
         return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: "Provide phone or email to start login" }) }] };
       }
 
       try {
-        await page.goto(SQUARE_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
-        await waitForPageReady(page);
+        await page.goto(SQUARE_BUYER_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 20000 });
+        await page.waitForTimeout(5000);
 
-        // Enter phone or email
-        const emailInput = page.locator('#mpui-combo-field-input, input[type="email"], input[type="tel"], input[name*="email"], input[name*="phone"]').first();
-        await emailInput.waitFor({ timeout: 5000 });
-        await emailInput.fill(credential);
+        // Fill phone number — buyer login uses type="tel" with aria-label="Mobile Phone Number"
+        const phoneInput = page.locator('input[type="tel"]:visible, input[aria-label*="Phone"]:visible, #mpui-combo-field-input').first();
+        await phoneInput.waitFor({ timeout: 5000 });
+        await phoneInput.fill(credential);
+        await page.waitForTimeout(1000);
 
-        // Click continue/next
-        const continueButton = page.locator('button[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Sign In")').first();
-        await continueButton.click();
+        // Click "Request Sign in Code" button
+        const requestCodeBtn = page.locator('market-button:visible').filter({ hasText: /request|send|code|continue/i });
+        if ((await requestCodeBtn.count()) > 0) {
+          await requestCodeBtn.first().click();
+        } else {
+          await page.keyboard.press("Enter");
+        }
 
-        await waitForPageReady(page);
+        await page.waitForTimeout(5000);
+
+        // Check what page we're on now
+        const body = await page.locator("body").textContent() ?? "";
+        const url = page.url();
 
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               status: "otp_sent",
-              message: `OTP sent to ${phone ? "phone" : "email"}. Call square_login again with the otp_code.`,
+              message: `Sign-in code requested for ${credential}. Ask the user for the code, then call square_login again with otp_code.`,
+              page_url: url,
             }),
           }],
         };
