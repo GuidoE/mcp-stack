@@ -82,6 +82,9 @@ if (MCP_TRANSPORT === "stdio") {
   let sseTransport: SSEServerTransport | null = null;
 
   app.get("/sse", async (_req, res) => {
+    if (sseTransport) {
+      await sseTransport.close();
+    }
     sseTransport = new SSEServerTransport("/messages", res);
     await server.connect(sseTransport);
   });
