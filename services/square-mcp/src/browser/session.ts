@@ -25,10 +25,16 @@ export async function getBrowser(): Promise<{ context: BrowserContext; page: Pag
 export async function checkSession(): Promise<boolean> {
   const { page } = await getBrowser();
   try {
-    await page.goto(SQUARE_ACCOUNT_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.goto(SQUARE_ACCOUNT_URL, { waitUntil: "networkidle", timeout: 15000 });
     const url = page.url();
-    // If we weren't redirected to login, session is valid
-    return !url.includes("/login");
+    // Must be on the dashboard (not redirected to login, not a 404/empty page)
+    if (url.includes("/login")) return false;
+    const title = await page.title();
+    const body = await page.locator("body").textContent();
+    // Empty title or "not found" means not actually logged in
+    if (!title || title.trim() === "") return false;
+    if (body?.includes("Not found") || body?.includes("couldn't find")) return false;
+    return true;
   } catch {
     return false;
   }
