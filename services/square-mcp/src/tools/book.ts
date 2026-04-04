@@ -1,112 +1,82 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getBrowser, checkSession } from "../browser/session.js";
-import { loadFavorites, resolveMerchant } from "./favorites.js";
-import { normalizeBookingUrl, waitForPageReady, getPageError } from "../browser/navigation.js";
+import { getBrowser } from "../browser/session.js";
 
-export function registerBookTool(server: McpServer, favoritesPath: string): void {
+export function registerBookTool(server: McpServer, _favoritesPath: string): void {
   server.tool(
     "square_book",
-    "Book an appointment at a Square merchant. Run square_search_times first to find available slots.",
+    "Book an appointment. MUST run square_search_times first — the browser is already on the calendar page. This tool clicks the time slot and confirms the booking.",
     {
-      merchant: z.string().describe("Merchant booking URL or favorites nickname"),
-      service: z.string().describe("Service name to book"),
-      datetime: z.string().describe("Date/time to book (as shown in search results)"),
+      time: z.string().describe("Time to book exactly as shown in search results (e.g. '9:00 AM', '3:30 PM')"),
     },
-    async ({ merchant, service, datetime }) => {
-      const loggedIn = await checkSession();
-      if (!loggedIn) {
-        return { content: [{ type: "text", text: JSON.stringify({ status: "session_expired", message: "Not logged in. Call square_login first." }) }] };
-      }
-
-      const favorites = loadFavorites(favoritesPath);
-      let url: string;
-      try {
-        url = resolveMerchant(favorites, merchant);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: msg }) }] };
-      }
-
+    async ({ time }) => {
       const { page } = await getBrowser();
 
       try {
-        await page.goto(normalizeBookingUrl(url), { waitUntil: "domcontentloaded", timeout: 15000 });
-        await waitForPageReady(page);
+        const currentUrl = page.url();
+        const currentBody = await page.locator("body").textContent() ?? "";
 
-        const pageError = await getPageError(page);
-        if (pageError) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", error: pageError, url }) }] };
+        // Verify we're on the availability/calendar page
+        if (!currentUrl.includes("/availability") && !currentBody.match(/\d{1,2}:\d{2}\s*(am|pm)/i)) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            status: "failed",
+            error: "Not on the calendar page. Run square_search_times first to navigate to available slots.",
+            current_url: currentUrl,
+          }) }] };
         }
 
-        // Select the service
-        const serviceLink = page.locator(`text=${service}`).first();
-        const serviceExists = (await serviceLink.count()) > 0;
-        if (serviceExists) {
-          await serviceLink.click();
-          await waitForPageReady(page);
+        // Click the time slot
+        const timeSlot = page.getByText(time, { exact: false }).first();
+        if ((await timeSlot.count()) === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            status: "failed",
+            error: `Time "${time}" not found on page. Available times on page: check square_search_times output.`,
+          }) }] };
         }
 
-        // Select the time slot
-        const timeSlot = page.locator(`button:has-text("${datetime}"), [role="button"]:has-text("${datetime}")`).first();
-        const timeExists = (await timeSlot.count()) > 0;
-        if (!timeExists) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", error: `Time slot "${datetime}" not found on page` }) }] };
-        }
         await timeSlot.click();
-        await waitForPageReady(page);
+        await page.waitForTimeout(3000);
 
-        // Look for a confirmation/book button
-        const bookButton = page.locator(
-          'button:has-text("Book"), button:has-text("Confirm"), button:has-text("Schedule"), button[type="submit"]',
-        ).first();
-        const bookExists = (await bookButton.count()) > 0;
-        if (bookExists) {
-          await bookButton.click();
-          await waitForPageReady(page);
+        // After clicking a time, Square shows a confirmation/review page
+        // Look for "Book" or "Confirm" button
+        const body = await page.locator("body").textContent() ?? "";
+        const url = page.url();
+
+        // Try clicking confirm/book
+        const confirmBtn = page.locator('market-button:visible').filter({ hasText: /book|confirm|schedule|complete/i });
+        if ((await confirmBtn.count()) > 0) {
+          await confirmBtn.first().click();
+          await page.waitForTimeout(5000);
+
+          const afterBody = await page.locator("body").textContent() ?? "";
+          const afterUrl = page.url();
+
+          // Check for success
+          if (/confirmed|booked|scheduled|success|thank you/i.test(afterBody)) {
+            return { content: [{ type: "text", text: JSON.stringify({
+              status: "booked",
+              confirmation: { time, page_url: afterUrl, message: afterBody.trim().substring(0, 500) },
+            }) }] };
+          }
+
+          // Return whatever we see
+          return { content: [{ type: "text", text: JSON.stringify({
+            status: "unknown",
+            message: "Clicked confirm but couldn't verify success. Check page content.",
+            page_url: afterUrl,
+            page_content: afterBody.trim().substring(0, 1500),
+          }) }] };
         }
 
-        // Check for success indicators
-        const successText = await page
-          .locator('text=/confirmed|booked|scheduled|success/i')
-          .first()
-          .textContent()
-          .catch(() => null);
+        // No confirm button — might need login, or we're on a review page
+        // Return page content so Bo can figure out next step
+        return { content: [{ type: "text", text: JSON.stringify({
+          status: "needs_action",
+          message: "Time selected but no confirm button found. Page may require login or additional steps.",
+          page_url: url,
+          page_content: body.trim().substring(0, 1500),
+        }) }] };
 
-        if (successText) {
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                status: "booked",
-                confirmation: { id: null, datetime, service, merchant, message: successText.trim() },
-              }),
-            }],
-          };
-        }
-
-        // Check for error messages
-        const errorText = await page
-          .locator('[class*="error"], [role="alert"], text=/sorry|unavailable|failed/i')
-          .first()
-          .textContent()
-          .catch(() => null);
-
-        if (errorText) {
-          return { content: [{ type: "text", text: JSON.stringify({ status: "failed", error: errorText.trim() }) }] };
-        }
-
-        // Ambiguous state — return page title for debugging
-        const title = await page.title();
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              status: "failed",
-              error: `Booking result unclear. Page title: "${title}". User should verify manually.`,
-            }),
-          }],
-        };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return { content: [{ type: "text", text: JSON.stringify({ status: "failed", error: `Booking failed: ${msg}` }) }] };
