@@ -61,17 +61,15 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
           }
         }
 
-        // Extract available time slots from the page
-        // Square booking pages show time buttons — look for common patterns
-        const timeSlots = page.locator(
-          'button[class*="time"], [data-testid*="time"], [role="button"]:has-text(/\\d{1,2}:\\d{2}/)',
-        );
-        const count = await timeSlots.count();
+        // Extract available time slots — grab all buttons, then filter for time-like text
+        const allButtons = page.locator('button, [role="button"]');
+        const buttonCount = await allButtons.count();
+        const timePattern = /\d{1,2}:\d{2}/;
         const times: { datetime: string; service: string; provider?: string }[] = [];
 
-        for (let i = 0; i < count; i++) {
-          const text = await timeSlots.nth(i).textContent();
-          if (text) {
+        for (let i = 0; i < buttonCount; i++) {
+          const text = await allButtons.nth(i).textContent();
+          if (text && timePattern.test(text)) {
             times.push({
               datetime: text.trim(),
               service: targetService ?? "unknown",

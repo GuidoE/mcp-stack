@@ -60,7 +60,7 @@ export function registerLoginTool(server: McpServer): void {
         await waitForPageReady(page);
 
         // Enter phone or email
-        const emailInput = page.locator('input[type="email"], input[type="tel"], input[name*="email"], input[name*="phone"], input[id*="email"]').first();
+        const emailInput = page.locator('#mpui-combo-field-input, input[type="email"], input[type="tel"], input[name*="email"], input[name*="phone"]').first();
         await emailInput.waitFor({ timeout: 5000 });
         await emailInput.fill(credential);
 
