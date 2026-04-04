@@ -7,20 +7,14 @@ import { normalizeBookingUrl } from "../browser/navigation.js";
 export function registerSearchTool(server: McpServer, favoritesPath: string): void {
   server.tool(
     "square_search_times",
-    "Find available appointment slots at a Square merchant. Navigates the full booking wizard: staff → service → Add → Next → calendar. Pass 'service' to select a stylist by name, 'service_option' to pick a specific service.",
+    "Find available appointment slots at a Square merchant. Navigates the booking wizard and browses multiple days. Returns all available slots across the requested range.",
     {
       merchant: z.string().describe("Merchant booking URL or favorites nickname"),
       service: z.string().optional().describe("Stylist/staff name to select (e.g. 'Vi')"),
       service_option: z.string().optional().describe("Specific service to book (e.g. 'short length haircut')"),
-      date_range: z
-        .object({
-          start: z.string().describe("Start date (YYYY-MM-DD)"),
-          end: z.string().describe("End date (YYYY-MM-DD)"),
-        })
-        .optional()
-        .describe("Date range to search (currently shows next available)"),
+      days_to_check: z.number().optional().describe("Number of days to browse from next available (default 7)"),
     },
-    async ({ merchant, service, service_option, date_range: _date_range }) => {
+    async ({ merchant, service, service_option, days_to_check }) => {
       const favorites = loadFavorites(favoritesPath);
       let url: string;
       let defaultService: string | undefined;
@@ -37,6 +31,7 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
 
       const { page } = await getBrowser();
       const targetService = service ?? defaultService;
+      const numDays = days_to_check ?? 7;
 
       try {
         const normalizedUrl = normalizeBookingUrl(url);
@@ -53,7 +48,7 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
           }) }] };
         }
 
-        // STEP 1: Select staff member if specified
+        // STEP 1: Select staff member
         if (targetService) {
           const match = page.locator(`text=${targetService}`).first();
           if ((await match.count()) > 0) {
@@ -62,7 +57,7 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
           }
         }
 
-        // STEP 2: Select specific service if specified
+        // STEP 2: Select service
         if (service_option) {
           const svcMatch = page.locator(`text=${service_option}`).first();
           if ((await svcMatch.count()) > 0) {
@@ -70,8 +65,6 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
             await page.waitForTimeout(2000);
           }
         } else {
-          // Auto-select first service option if none specified
-          // Look for price indicators (services have prices like "$55.00")
           const serviceItems = page.locator('text=/\\$\\d+/');
           if ((await serviceItems.count()) > 0) {
             await serviceItems.first().click();
@@ -79,60 +72,89 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
           }
         }
 
-        // STEP 3: Click "Add" button
+        // STEP 3: Add
         const addBtn = page.getByText("Add", { exact: true });
         if ((await addBtn.count()) > 0) {
           await addBtn.first().click();
           await page.waitForTimeout(2000);
         }
 
-        // STEP 4: Click "Next" button to go to calendar
+        // STEP 4: Next → calendar
         const nextBtn = page.getByText("Next", { exact: true });
         if ((await nextBtn.count()) > 0) {
           await nextBtn.first().click();
           await page.waitForTimeout(5000);
         }
 
-        // STEP 5: If "no availability" shown, click "Go to next available"
+        // STEP 5: Go to next available
         const nextAvail = page.getByText("Go to next available");
         if ((await nextAvail.count()) > 0) {
           await nextAvail.click();
-          await page.waitForTimeout(5000);
+          await page.waitForTimeout(3000);
         }
 
-        // STEP 6: Extract time slots and date info
-        const currentBody = await page.locator("body").textContent() ?? "";
-        const currentUrl = page.url();
-        const timePattern = /\d{1,2}:\d{2}\s*(am|pm|AM|PM)/gi;
-        const timeMatches = currentBody.match(timePattern) ?? [];
+        // STEP 6: Toggle calendar to week/month view for date browsing
+        const collapseBtn = page.locator('button[aria-label*="Collapse"][aria-label*="week"]');
+        if ((await collapseBtn.count()) > 0) {
+          await collapseBtn.click({ force: true }).catch(() => {});
+          await page.waitForTimeout(2000);
+        }
 
-        // Extract the date being shown
-        const datePattern = /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+\w+\s+\d{1,2},\s+\d{4}/;
-        const dateMatch = currentBody.match(datePattern);
-        const dateShown = dateMatch?.[0] ?? "unknown date";
+        // STEP 7: Get the starting day number from current page
+        const startBody = await page.locator("body").textContent() ?? "";
+        const startDateMatch = startBody.match(/\w+,\s+\w+\s+(\d{1,2}),\s+\d{4}/);
+        const startDay = startDateMatch ? parseInt(startDateMatch[1], 10) : 6;
 
-        if (timeMatches.length > 0) {
-          const times = timeMatches.map((t) => ({
-            datetime: `${dateShown} at ${t}`,
-            service: service_option ?? "first available service",
+        // STEP 8: Browse multiple days using JS evaluate to click date buttons
+        const allSlots: { date: string; times: string[] }[] = [];
+
+        for (let i = 0; i < numDays; i++) {
+          const dayNum = startDay + i;
+
+          // Click the date button via JS (bypasses visibility — dates in scrollable strip)
+          await page.evaluate((d: number) => {
+            const btns = document.querySelectorAll("market-button");
+            for (const b of btns) {
+              const text = (b.textContent ?? "").trim();
+              if (new RegExp(`(Mo|Tu|We|Th|Fr|Sa|Su)\\s+${d}$`).test(text)) {
+                (b as HTMLElement).click();
+                return;
+              }
+            }
+          }, dayNum);
+
+          await page.waitForTimeout(2000);
+
+          const body = await page.locator("body").textContent() ?? "";
+          const datePattern = /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+\w+\s+\d{1,2},\s+\d{4}/;
+          const dateMatch = body.match(datePattern);
+          const dateName = dateMatch?.[0] ?? `Day ${dayNum}`;
+          const timePattern = /\d{1,2}:\d{2}\s*(?:AM|PM)/gi;
+          const times = body.match(timePattern) ?? [];
+          const noAvail = body.includes("No availability");
+
+          if (times.length > 0) {
+            // Deduplicate times
+            const uniqueTimes = [...new Set(times)];
+            allSlots.push({ date: dateName, times: uniqueTimes });
+          }
+        }
+
+        if (allSlots.length > 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            slots: allSlots,
+            days_checked: numDays,
             provider: targetService ?? "unknown",
-          }));
-          return { content: [{ type: "text", text: JSON.stringify({ times, date: dateShown, url: currentUrl }) }] };
+            service: service_option ?? "first available",
+          }) }] };
         }
 
-        // No times — return what we see
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              times: [],
-              date: dateShown,
-              current_url: currentUrl,
-              page_content: currentBody.trim().substring(0, 3000),
-              hint: "No time slots found. The page may show a staff list or service list. Try specifying 'service' (stylist name) and 'service_option' (e.g. 'short length haircut').",
-            }),
-          }],
-        };
+        return { content: [{ type: "text", text: JSON.stringify({
+          slots: [],
+          days_checked: numDays,
+          message: `No available slots found in the next ${numDays} days.`,
+        }) }] };
+
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return { content: [{ type: "text", text: JSON.stringify({ status: "failed", message: `Search failed: ${msg}`, url }) }] };
