@@ -1,20 +1,76 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Page } from "playwright";
 import { z } from "zod";
 import { getBrowser } from "../browser/session.js";
 import { loadFavorites, resolveMerchant } from "./favorites.js";
 import { normalizeBookingUrl } from "../browser/navigation.js";
 
+const DAY_ABBRS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+/** Click the forward arrow on Square's calendar. Returns true if a button was found. */
+async function clickForwardArrow(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    // Square uses market-button or plain button with aria-label patterns
+    const selectors = [
+      'button[aria-label*="next" i]',
+      'market-button[aria-label*="next" i]',
+      'button[aria-label*="forward" i]',
+      'market-button[aria-label*="forward" i]',
+      '[data-testid*="next"]',
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      if (el) { el.click(); return true; }
+    }
+    // Fallback: look for a right-arrow SVG button (common calendar pattern)
+    for (const btn of document.querySelectorAll("button, market-button")) {
+      const label = btn.getAttribute("aria-label") ?? "";
+      if (/next|forward|chevron.?right/i.test(label)) {
+        (btn as HTMLElement).click();
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/** Check if a date button with the given day-of-week abbreviation and day number exists in the DOM. */
+async function dateButtonExists(page: Page, dayAbbr: string, dayNum: number): Promise<boolean> {
+  return page.evaluate(({ abbr, day }) => {
+    for (const b of document.querySelectorAll("market-button")) {
+      const text = (b.textContent ?? "").trim();
+      if (new RegExp(`${abbr}\\s+${day}$`).test(text)) return true;
+    }
+    return false;
+  }, { abbr: dayAbbr, day: dayNum });
+}
+
+/** Click a date button by day-of-week abbreviation and day number. */
+async function clickDateButton(page: Page, dayAbbr: string, dayNum: number): Promise<boolean> {
+  return page.evaluate(({ abbr, day }) => {
+    for (const b of document.querySelectorAll("market-button")) {
+      const text = (b.textContent ?? "").trim();
+      if (new RegExp(`${abbr}\\s+${day}$`).test(text)) {
+        (b as HTMLElement).click();
+        return true;
+      }
+    }
+    return false;
+  }, { abbr: dayAbbr, day: dayNum });
+}
+
 export function registerSearchTool(server: McpServer, favoritesPath: string): void {
   server.tool(
     "square_search_times",
-    "Find available appointment slots at a Square merchant. Navigates the booking wizard and browses multiple days. Returns all available slots across the requested range.",
+    "Find available appointment slots at a Square merchant. Navigates the booking wizard, then clicks each calendar date individually to load its time slots. Returns every date checked — both available and unavailable.",
     {
       merchant: z.string().describe("Merchant booking URL or favorites nickname"),
       service: z.string().optional().describe("Stylist/staff name to select (e.g. 'Vi')"),
       service_option: z.string().optional().describe("Specific service to book (e.g. 'short length haircut')"),
-      days_to_check: z.number().optional().describe("Number of days to browse from next available (default 7)"),
+      days_to_check: z.number().optional().describe("Number of days to browse (default 7)"),
+      start_date: z.string().optional().describe("Start browsing from this date (YYYY-MM-DD). If omitted, starts from the first available date."),
     },
-    async ({ merchant, service, service_option, days_to_check }) => {
+    async ({ merchant, service, service_option, days_to_check, start_date }) => {
       const favorites = loadFavorites(favoritesPath);
       let url: string;
       let defaultService: string | undefined;
@@ -86,73 +142,91 @@ export function registerSearchTool(server: McpServer, favoritesPath: string): vo
           await page.waitForTimeout(5000);
         }
 
-        // STEP 5: Go to next available
+        // STEP 5: Go to next available to enter the calendar view
         const nextAvail = page.getByText("Go to next available");
         if ((await nextAvail.count()) > 0) {
           await nextAvail.click();
           await page.waitForTimeout(3000);
         }
 
-        // STEP 6: Toggle calendar to week/month view for date browsing
-        const collapseBtn = page.locator('button[aria-label*="Collapse"][aria-label*="week"]');
-        if ((await collapseBtn.count()) > 0) {
-          await collapseBtn.click({ force: true }).catch(() => {});
-          await page.waitForTimeout(2000);
+        // STEP 6: Build the list of actual Date objects to check.
+        // This handles month boundaries correctly (Apr 30 → May 1).
+        let baseDate: Date;
+        if (start_date) {
+          baseDate = new Date(start_date + "T12:00:00");
+        } else {
+          const pageText = await page.locator("body").textContent() ?? "";
+          const dm = pageText.match(/\w+,\s+(\w+\s+\d{1,2},\s+\d{4})/);
+          baseDate = dm ? new Date(dm[1]) : new Date();
         }
 
-        // STEP 7: Get the starting day number from current page
-        const startBody = await page.locator("body").textContent() ?? "";
-        const startDateMatch = startBody.match(/\w+,\s+\w+\s+(\d{1,2}),\s+\d{4}/);
-        const startDay = startDateMatch ? parseInt(startDateMatch[1], 10) : 6;
-
-        // STEP 8: Browse multiple days using JS evaluate to click date buttons
-        const allSlots: { date: string; times: string[] }[] = [];
-
+        const targetDates: Date[] = [];
         for (let i = 0; i < numDays; i++) {
-          const dayNum = startDay + i;
+          const d = new Date(baseDate);
+          d.setDate(d.getDate() + i);
+          targetDates.push(d);
+        }
 
-          // Click the date button via JS (bypasses visibility — dates in scrollable strip)
-          await page.evaluate((d: number) => {
-            const btns = document.querySelectorAll("market-button");
-            for (const b of btns) {
-              const text = (b.textContent ?? "").trim();
-              if (new RegExp(`(Mo|Tu|We|Th|Fr|Sa|Su)\\s+${d}$`).test(text)) {
-                (b as HTMLElement).click();
-                return;
-              }
-            }
-          }, dayNum);
+        // STEP 7: Navigate the calendar forward until the first target date is visible.
+        if (start_date) {
+          const first = targetDates[0];
+          const firstAbbr = DAY_ABBRS[first.getDay()];
+          const firstDay = first.getDate();
 
-          await page.waitForTimeout(2000);
-
-          const body = await page.locator("body").textContent() ?? "";
-          const datePattern = /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+\w+\s+\d{1,2},\s+\d{4}/;
-          const dateMatch = body.match(datePattern);
-          const dateName = dateMatch?.[0] ?? `Day ${dayNum}`;
-          const timePattern = /\d{1,2}:\d{2}\s*(?:AM|PM)/gi;
-          const times = body.match(timePattern) ?? [];
-          const noAvail = body.includes("No availability");
-
-          if (times.length > 0) {
-            // Deduplicate times
-            const uniqueTimes = [...new Set(times)];
-            allSlots.push({ date: dateName, times: uniqueTimes });
+          for (let attempt = 0; attempt < 20; attempt++) {
+            if (await dateButtonExists(page, firstAbbr, firstDay)) break;
+            if (!(await clickForwardArrow(page))) break;
+            await page.waitForTimeout(2000);
           }
         }
 
-        if (allSlots.length > 0) {
-          return { content: [{ type: "text", text: JSON.stringify({
-            slots: allSlots,
-            days_checked: numDays,
-            provider: targetService ?? "unknown",
-            service: service_option ?? "first available",
-          }) }] };
+        // STEP 8: Click each date individually, wait for slots to load, extract times.
+        const allSlots: { date: string; times: string[] }[] = [];
+        const noAvailDates: string[] = [];
+
+        for (const target of targetDates) {
+          const dayNum = target.getDate();
+          const dayAbbr = DAY_ABBRS[target.getDay()];
+          const dateLabel = target.toLocaleDateString("en-US", {
+            weekday: "long", year: "numeric", month: "long", day: "numeric",
+          });
+
+          // Ensure the date button is in the DOM; navigate forward if needed
+          if (!(await dateButtonExists(page, dayAbbr, dayNum))) {
+            if (await clickForwardArrow(page)) {
+              await page.waitForTimeout(2000);
+            }
+            // If still not visible after advancing, record and skip
+            if (!(await dateButtonExists(page, dayAbbr, dayNum))) {
+              noAvailDates.push(dateLabel);
+              continue;
+            }
+          }
+
+          // Click the date
+          await clickDateButton(page, dayAbbr, dayNum);
+
+          await page.waitForTimeout(2000);
+
+          // Extract times from the page
+          const body = await page.locator("body").textContent() ?? "";
+          const timePattern = /\d{1,2}:\d{2}\s*(?:AM|PM)/gi;
+          const times = body.match(timePattern) ?? [];
+
+          if (times.length > 0) {
+            const uniqueTimes = [...new Set(times)];
+            allSlots.push({ date: dateLabel, times: uniqueTimes });
+          } else {
+            noAvailDates.push(dateLabel);
+          }
         }
 
         return { content: [{ type: "text", text: JSON.stringify({
-          slots: [],
+          slots: allSlots,
+          no_availability: noAvailDates,
           days_checked: numDays,
-          message: `No available slots found in the next ${numDays} days.`,
+          provider: targetService ?? "unknown",
+          service: service_option ?? "first available",
         }) }] };
 
       } catch (error) {
