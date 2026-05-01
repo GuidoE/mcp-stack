@@ -13,5 +13,8 @@ if [ "${MCP_TRANSPORT}" = "stdio" ]; then
   exec sleep infinity
 else
   # SSE mode — HTTP server for remote agents
-  exec npx @playwright/mcp@latest --headless --host 0.0.0.0 --port "${MCP_PORT:-3002}" --allowed-hosts '*' --caps vision
+  # Use the locally installed @playwright/mcp (matches the Chromium installed at build time).
+  # Do NOT use @latest here — npx would fetch a newer MCP whose bundled playwright-core
+  # expects a newer Chromium revision than what's in /root/.cache/ms-playwright.
+  exec npx @playwright/mcp --headless --host 0.0.0.0 --port "${MCP_PORT:-3002}" --allowed-hosts '*' --caps vision
 fi
