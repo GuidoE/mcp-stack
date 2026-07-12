@@ -1,5 +1,19 @@
 http:
   routers:
+    # Hostname route with a real LE cert (wildcard *.superg.co) — required by
+    # clients that verify TLS, e.g. Home Assistant's OpenAI integrations.
+    openclaw-tls:
+      rule: "Host(`claw.superg.co`) && PathPrefix(`/v1`)"
+      entryPoints:
+        - websecure
+      service: openclaw
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: "superg.co"
+            sans: ["*.superg.co"]
+
+    # Legacy bare-IP route (Traefik default self-signed cert) — curl -k only.
     openclaw:
       rule: "PathPrefix(`/v1`)"
       entryPoints:
