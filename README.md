@@ -39,6 +39,8 @@ USW Enterprise 24 PoE — VLAN 11 (192.168.11.0/24)
         ├── postgres      (shared PostgreSQL 17, port 5433)
         ├── traefik       (reverse proxy, port 80 / dashboard 8080)
         └── [future MCPs] (add as new services)
+    └── Docker Compose — /opt/postiz (separate stack, see docs/postiz.md)
+        └── postiz        (social scheduling + MCP, port 3004)
 ```
 
 Claude Desktop on Mac Studio / MaxBlack reaches mcp-stack over Tailscale
@@ -168,6 +170,7 @@ cd /opt/mcp-stack && bash scripts/update.sh
 | m365-mcp       | 3001 | PnP CLI for Microsoft 365                |
 | playwright-mcp | 3002 | Headless Chromium for agentic browsing    |
 | square-mcp     | 3003 | Square appointment booking               |
+| postiz         | 3004 | Social post scheduling + MCP (separate stack at `/opt/postiz`, see [docs/postiz.md](docs/postiz.md)) |
 | postgres       | 5433 | Shared PostgreSQL 17                     |
 | flaresolverr   | 8191 | Cloudflare anti-bot bypass proxy         |
 | traefik        | 80   | Reverse proxy                            |
