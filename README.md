@@ -34,7 +34,6 @@ USW Enterprise 24 PoE — VLAN 11 (192.168.11.0/24)
     └── Docker Compose
         ├── m365-mcp      (PnP CLI for Microsoft 365, port 3001)
         ├── playwright-mcp (headless Chromium browser, SSE on port 3002)
-        ├── flaresolverr  (Cloudflare anti-bot bypass, port 8191)
         ├── postgres      (shared PostgreSQL 17, port 5433)
         ├── traefik       (reverse proxy, port 80 / dashboard 8080)
         └── [future MCPs] (add as new services)
@@ -170,6 +169,7 @@ cd /opt/mcp-stack && bash scripts/update.sh
 | playwright-mcp | 3002 | Headless Chromium for agentic browsing    |
 | postiz         | 3004 | Social post scheduling + MCP (separate stack at `/opt/postiz`, see [docs/postiz.md](docs/postiz.md)) |
 | postgres       | 5433 | Shared PostgreSQL 17                     |
-| flaresolverr   | 8191 | Cloudflare anti-bot bypass proxy         |
 | traefik        | 80   | Reverse proxy                            |
 | traefik        | 8080 | Dashboard (disable in production)        |
+
+Cloudflare anti-bot bypass (flaresolverr) runs on the NAS's Container Station instead, behind NPM at `https://flaresolverr.espinosahome.com` — not deployed on this stack.

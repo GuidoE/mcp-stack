@@ -87,26 +87,6 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
-  # flaresolverr  —  Cloudflare anti-bot bypass proxy
-  # HTTP API on port 8191, usable by agents on mcp-net
-  # ----------------------------------------------------------
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
-    restart: unless-stopped
-    networks:
-      - mcp-net
-    ports:
-      - "8191:8191"
-    environment:
-      - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
-      - LOG_HTML=${FLARESOLVERR_LOG_HTML:-false}
-      - CAPTCHA_SOLVER=${FLARESOLVERR_CAPTCHA_SOLVER:-none}
-      - TZ=America/Chicago
-    security_opt:
-      - apparmor=unconfined
-
-  # ----------------------------------------------------------
   # postgres  —  Shared PostgreSQL for MCP services, OpenClaw, Hermes
   # Port: 5433 (host) → 5432 (container)
   # ----------------------------------------------------------
