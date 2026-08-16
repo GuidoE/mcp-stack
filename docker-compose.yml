@@ -107,29 +107,6 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
-  # square-mcp  —  Square appointment booking via Playwright
-  # Transport: SSE on port 3003 (default), or stdio via docker exec
-  # ----------------------------------------------------------
-  square-mcp:
-    build:
-      context: ./services/square-mcp
-      dockerfile: Dockerfile
-    container_name: square-mcp
-    restart: unless-stopped
-    networks:
-      - mcp-net
-    ports:
-      - "3003:3003"
-    environment:
-      - MCP_TRANSPORT=sse
-      - MCP_PORT=3003
-    volumes:
-      - square-session:/app/.browser-data
-      - ./services/square-mcp/config/favorites.json:/app/favorites.json
-    security_opt:
-      - apparmor=unconfined
-
-  # ----------------------------------------------------------
   # postgres  —  Shared PostgreSQL for MCP services, OpenClaw, Hermes
   # Port: 5433 (host) → 5432 (container)
   # ----------------------------------------------------------
@@ -179,5 +156,4 @@ services:
 volumes:
   m365-auth:
   traefik-acme:
-  square-session:
   pgdata:
