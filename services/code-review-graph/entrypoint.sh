@@ -12,14 +12,19 @@ REPO_DIR="/app/repo"
 PORT="${MCP_PORT:-3003}"
 REFRESH_SECONDS="${REFRESH_SECONDS:-300}"
 GIT_REPO_URL="${GIT_REPO_URL:-git@github.com:the-real-bojangles/telos.git}"
-DEPLOY_KEY="/run/secrets/crg_telos_deploy_key"
+DEPLOY_KEY_SRC="/run/secrets/crg_telos_deploy_key"
+DEPLOY_KEY="/root/.ssh/crg_telos_deploy"
 
-if [ ! -f "${DEPLOY_KEY}" ]; then
-  echo "==> ${DEPLOY_KEY} not mounted, refusing to start" >&2
+if [ ! -f "${DEPLOY_KEY_SRC}" ]; then
+  echo "==> ${DEPLOY_KEY_SRC} not mounted, refusing to start" >&2
   exit 1
 fi
+# Mount is read-only; copy to a writable path so we can set the perms
+# SSH requires (0600) regardless of the host-side mode.
+mkdir -p /root/.ssh
+cp "${DEPLOY_KEY_SRC}" "${DEPLOY_KEY}"
 chmod 600 "${DEPLOY_KEY}"
-export GIT_SSH_COMMAND="ssh -i ${DEPLOY_KEY} -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes"
+export GIT_SSH_COMMAND="ssh -i ${DEPLOY_KEY} -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes"
 
 if [ ! -d "${REPO_DIR}/.git" ]; then
   echo "==> Cloning ${GIT_REPO_URL} ..." >&2
