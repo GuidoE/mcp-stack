@@ -87,6 +87,32 @@ services:
       - apparmor=unconfined
 
   # ----------------------------------------------------------
+  # code-review-graph  —  Tree-sitter code intelligence graph for
+  # the-real-bojangles/telos, served over MCP for the OC/Telos crew.
+  # Read-only mirror, refreshed on an interval. Transport: HTTP on 3003.
+  # ----------------------------------------------------------
+  code-review-graph:
+    build:
+      context: ./services/code-review-graph
+      dockerfile: Dockerfile
+    container_name: code-review-graph
+    restart: unless-stopped
+    networks:
+      - mcp-net
+    ports:
+      - "3003:3003"
+    volumes:
+      - crg-telos-repo:/app/repo
+      - crg-graph-data:/root/.code-review-graph
+      - ./services/code-review-graph/keys/crg_telos_deploy:/run/secrets/crg_telos_deploy_key:ro
+    environment:
+      - GIT_REPO_URL=git@github.com:the-real-bojangles/telos.git
+      - MCP_PORT=3003
+      - REFRESH_SECONDS=300
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
   # postgres  —  Shared PostgreSQL for MCP services, OpenClaw, Hermes
   # Port: 5433 (host) → 5432 (container)
   # ----------------------------------------------------------
@@ -137,3 +163,5 @@ volumes:
   m365-auth:
   traefik-acme:
   pgdata:
+  crg-telos-repo:
+  crg-graph-data:

@@ -2,6 +2,7 @@
 .env
 services/spotify-mcp/config/spotify-config.json
 services/square-mcp/config/favorites.json
+services/code-review-graph/keys/
 
 # Build output
 **/dist/

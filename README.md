@@ -167,6 +167,7 @@ cd /opt/mcp-stack && bash scripts/update.sh
 |----------------|------|------------------------------------------|
 | m365-mcp       | 3001 | PnP CLI for Microsoft 365                |
 | playwright-mcp | 3002 | Headless Chromium for agentic browsing    |
+| code-review-graph | 3003 | Tree-sitter code graph for the-real-bojangles/telos (OC/Telos crew) |
 | postiz         | 3004 | Social post scheduling + MCP (separate stack at `/opt/postiz`, see [docs/postiz.md](docs/postiz.md)) |
 | postgres       | 5433 | Shared PostgreSQL 17                     |
 | traefik        | 80   | Reverse proxy                            |
