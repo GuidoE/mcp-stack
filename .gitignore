@@ -17,3 +17,7 @@ services/code-review-graph/keys/
 .idea/
 .vscode/
 *.swp
+services/nextdns-mcp/secrets/
+services/nextdns-mcp/nginx/00-auth.conf
+docker-compose.yml.bak-*
+services/arr-mcp/config/

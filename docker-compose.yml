@@ -159,9 +159,76 @@ services:
     labels:
       - "traefik.enable=true"
 
+  # ----------------------------------------------------------
+  # arr-mcp  —  unified MCP server for the *arr media stack
+  # https://github.com/bardesss/arr-mcp
+  # ----------------------------------------------------------
+  arr-mcp:
+    image: ghcr.io/bardesss/arr-mcp:latest
+    container_name: arr-mcp
+    restart: unless-stopped
+    ports:
+      - "6060:6060"
+    volumes:
+      - ./services/arr-mcp/config:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+    security_opt:
+      - apparmor=unconfined
+
+  # ----------------------------------------------------------
+  # nextdns-mcp  —  NextDNS API MCP server for Jinx (CT 110)
+  # https://github.com/dmeiser/nextdns-mcp  (pinned 3.2.5 by digest)
+  # Read-only; reads Primary Internet (3d2183) + Kids Internet (81a2ac). No published port: its HTTP
+  # transport has no auth, so clients go through nextdns-mcp-auth below.
+  # ----------------------------------------------------------
+  nextdns-mcp:
+    image: ghcr.io/dmeiser/nextdns-mcp:3.2.5@sha256:a52f973aa84cc4e614f2161b6099bf3ee287027876bfb56644ae18023a28729b
+    container_name: nextdns-mcp
+    restart: unless-stopped
+    environment:
+      - MCP_TRANSPORT=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - NEXTDNS_API_KEY_FILE=/run/secrets/nextdns_api_key
+      - NEXTDNS_DEFAULT_PROFILE=3d2183
+      - NEXTDNS_READABLE_PROFILES=3d2183,81a2ac
+      - NEXTDNS_READ_ONLY=true
+    volumes:
+      - ./services/nextdns-mcp/secrets/nextdns_api_key:/run/secrets/nextdns_api_key:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - apparmor=unconfined
+      - no-new-privileges:true
+    networks:
+      - mcp-net
+
+  # Bearer-token gate for nextdns-mcp (token map in nginx/00-auth.conf,
+  # source of record: 1Password OpenClaw-Secrets / "Jinx NextDNS MCP Bearer").
+  # Reached from CT 110 over Tailscale: http://100.88.111.96:6070/mcp
+  nextdns-mcp-auth:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    container_name: nextdns-mcp-auth
+    restart: unless-stopped
+    depends_on:
+      - nextdns-mcp
+    ports:
+      - "6070:8080"
+    volumes:
+      - ./services/nextdns-mcp/nginx:/etc/nginx/conf.d:ro
+    security_opt:
+      - apparmor=unconfined
+      - no-new-privileges:true
+    networks:
+      - mcp-net
+
 volumes:
   m365-auth:
   traefik-acme:
   pgdata:
   crg-telos-repo:
   crg-graph-data:
+
