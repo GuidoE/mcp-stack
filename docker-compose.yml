@@ -97,6 +97,10 @@ services:
       dockerfile: Dockerfile
     container_name: code-review-graph
     restart: unless-stopped
+    # tini as PID 1: each refresh's `git pull` detaches a background
+    # maintenance process that gets reparented to PID 1. Without an init,
+    # PID 1 is the Python server, which never reaps them (~300 zombies/day).
+    init: true
     networks:
       - mcp-net
     ports:
