@@ -21,3 +21,5 @@ services/nextdns-mcp/secrets/
 services/nextdns-mcp/nginx/00-auth.conf
 docker-compose.yml.bak-*
 services/arr-mcp/config/
+services/massive-mcp/secrets/
+services/massive-mcp/nginx/00-auth.conf

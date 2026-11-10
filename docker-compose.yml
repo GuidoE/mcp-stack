@@ -233,6 +233,42 @@ services:
     networks:
       - mcp-net
 
+  # Massive.com market data MCP (stocks + futures; Guido's Starter plans).
+  # Built from massive-com/mcp_massive v0.10.0; key is a file secret.
+  massive-mcp:
+    build: ./services/massive-mcp
+    image: mcp-stack-massive-mcp
+    container_name: massive-mcp
+    restart: unless-stopped
+    volumes:
+      - ./services/massive-mcp/secrets/massive_api_key:/run/secrets/massive_api_key:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - apparmor=unconfined
+      - no-new-privileges:true
+    networks:
+      - mcp-net
+
+  # Bearer-token gate for massive-mcp (token map in nginx/00-auth.conf,
+  # source of record: 1Password OpenClaw-Secrets / "Massive MCP Bearer").
+  # Reached from CT 110 over Tailscale: http://100.88.111.96:6080/mcp
+  massive-mcp-auth:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    container_name: massive-mcp-auth
+    restart: unless-stopped
+    depends_on:
+      - massive-mcp
+    ports:
+      - "6080:8080"
+    volumes:
+      - ./services/massive-mcp/nginx:/etc/nginx/conf.d:ro
+    security_opt:
+      - apparmor=unconfined
+      - no-new-privileges:true
+    networks:
+      - mcp-net
+
 volumes:
   m365-auth:
   traefik-acme:
